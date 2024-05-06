@@ -5,15 +5,19 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 
 
 def preprocess_image(input_data):
-    if isinstance(input_data, str):
-        image = cv2.imread(input_data)
+    if input_data.ndim == 3 and input_data.shape[2] == 3:
+        hsv = cv2.cvtColor(input_data, cv2.COLOR_BGR2HSV)
+        hsv[:, :, 2] = cv2.equalizeHist(hsv[:, :, 2])
+        enhanced_image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+        gray_image = cv2.cvtColor(enhanced_image, cv2.COLOR_BGR2GRAY)
     else:
-        image = input_data
-    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
-    return hsv_image
+        gray_image = cv2.equalizeHist(input_data)
+    return gray_image
 
 
 def dynamic_color_segmentation(input_image):
+    if len(input_image.shape) == 2:  # Image is grayscale
+        input_image = cv2.cvtColor(input_image, cv2.COLOR_GRAY2BGR)
     hsv = cv2.cvtColor(input_image, cv2.COLOR_BGR2HSV)
     h_mean = np.mean(hsv[:, :, 0])
     s_mean = np.mean(hsv[:, :, 1])
@@ -65,6 +69,26 @@ def hybrid_edge_detection(input_image, low_threshold=50, high_threshold=150, sob
 
     return combined_edges
 
+def advanced_edge_detection(image):
+    # Apply Gaussian blur to reduce noise
+    blurred = cv2.GaussianBlur(image, (5, 5), 0)
+    v = np.median(blurred)
+    sigma = 0.33
+    lower = int(max(0, (1.0 - sigma) * v))
+    upper = int(min(255, (1.0 + sigma) * v))
+    edges = cv2.Canny(blurred, lower, upper)
+    return edges
+
+def combined_edge_detection(image):
+    # Get initial edges using advanced Canny method
+    initial_edges = advanced_edge_detection(image)
+
+    # Refine edges using the hybrid method
+    refined_edges = hybrid_edge_detection(image)
+
+    # Combine the two edge maps
+    combined_edges = cv2.bitwise_or(initial_edges, refined_edges)
+    return combined_edges
 
 
 def apply_morphology(image):

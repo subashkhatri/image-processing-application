@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt
 
 from modules.image_processing_modules import (
     preprocess_image,
-    hybrid_edge_detection,
+    combined_edge_detection,
     dynamic_color_segmentation,
     calculate_road_length,
     create_mask,
@@ -90,11 +90,12 @@ class ImageProcessorApp(QtWidgets.QMainWindow):
 
     def runProcessing(self, img):
         preprocessed = preprocess_image(img)
-        edges = hybrid_edge_detection(preprocessed)
+        edges = combined_edge_detection(preprocessed)
         mask, metrics = self.analyzeImage(preprocessed)
         return mask, edges, metrics
 
     def analyzeImage(self, img):
+        # morphology = apply_morphology(img)
         mask = dynamic_color_segmentation(img)
         contours = find_contours(mask)
         road_mask = create_mask(contours, img.shape[:2])
