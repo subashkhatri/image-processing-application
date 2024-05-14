@@ -7,8 +7,8 @@ from PyQt5.QtCore import Qt
 
 from modules.image_processing_modules import (
     preprocess_image,
-    combined_edge_detection,
-    dynamic_color_segmentation,
+    hybrid_edge_detection,
+    combined_segmentation,  # Updated import
     calculate_road_length,
     create_mask,
     find_contours,
@@ -17,8 +17,6 @@ from modules.image_processing_modules import (
     calculate_accuracy,
     calculate_iou,
 )
-
-
 
 class ImageProcessorApp(QtWidgets.QMainWindow):
     def __init__(self):
@@ -80,30 +78,42 @@ class ImageProcessorApp(QtWidgets.QMainWindow):
 
     def displayImage(self, img, label):
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        h, w, ch = img.shape
-        bytes_per_line = ch * w
-        convert_to_Qt_format = QtGui.QImage(
-            img.data, w, h, bytes_per_line, QtGui.QImage.Format_RGB888
-        )
-        p = convert_to_Qt_format.scaled(256, 256, aspectRatioMode=Qt.KeepAspectRatio)
-        label.setPixmap(QtGui.QPixmap.fromImage(p))
+        qimg = QtGui.QImage(img.data, img.shape[1], img.shape[0], QtGui.QImage.Format_RGB888)
+        pixmap = QtGui.QPixmap.fromImage(qimg)
+        label.setPixmap(pixmap.scaled(label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def runProcessing(self, img):
         preprocessed = preprocess_image(img)
-        edges = combined_edge_detection(preprocessed)
-        mask, metrics = self.analyzeImage(preprocessed)
+        edges = hybrid_edge_detection(preprocessed)
+        mask, metrics = self.analyzeImage(img)  # Use the original image for color segmentation
         return mask, edges, metrics
 
     def analyzeImage(self, img):
-        # morphology = apply_morphology(img)
-        mask = dynamic_color_segmentation(img)
-        contours = find_contours(mask)
+        # Apply combined segmentation
+        mask = combined_segmentation(img)
+        self.displayImage(mask, self.label_processed)  # Display combined segmentation mask
+
+        # Further clean the segmentation mask with less aggressive parameters
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+        cleaned_mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+        self.displayImage(cleaned_mask, self.label_processed)  # Display cleaned mask
+
+        cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+        self.displayImage(cleaned_mask, self.label_processed)  # Display cleaned mask after closing
+
+        # Find contours and create the final mask
+        contours = find_contours(cleaned_mask)
         road_mask = create_mask(contours, img.shape[:2])
+        self.displayImage(road_mask, self.label_processed)  # Display final road mask
+
+        # Calculate metrics
         road_length, _ = calculate_road_length(contours, pixel_to_real=0.05)
         iou_score = calculate_iou(road_mask, mask)
         precision, recall, f1 = calculate_metrics(road_mask, mask)
         accuracy = calculate_accuracy(road_mask, mask)
+
         return road_mask, {"f1": f1, "accuracy": accuracy, "road_length": road_length}
+
 
 
 if __name__ == "__main__":
