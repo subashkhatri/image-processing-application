@@ -7,8 +7,7 @@ from PyQt5.QtCore import Qt
 
 from modules.image_processing_modules import (
     preprocess_image,
-    hybrid_edge_detection,
-    combined_segmentation,  # Updated import
+    dynamic_color_segmentation,
     calculate_road_length,
     create_mask,
     find_contours,
@@ -16,6 +15,7 @@ from modules.image_processing_modules import (
     calculate_metrics,
     calculate_accuracy,
     calculate_iou,
+    hybrid_edge_detection,
 )
 
 class ImageProcessorApp(QtWidgets.QMainWindow):
@@ -25,7 +25,7 @@ class ImageProcessorApp(QtWidgets.QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Road Feature Detection App")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 1000, 800)
 
         # Main widget
         self.central_widget = QWidget()
@@ -44,8 +44,11 @@ class ImageProcessorApp(QtWidgets.QMainWindow):
 
         # Image display
         self.label_original = QLabel(self)
+        self.label_original.setFixedSize(300, 300)
         self.label_processed = QLabel(self)
+        self.label_processed.setFixedSize(300, 300)
         self.label_edges = QLabel(self)
+        self.label_edges.setFixedSize(300, 300)
 
         image_layout = QHBoxLayout()
         image_layout.addWidget(self.label_original)
@@ -85,36 +88,35 @@ class ImageProcessorApp(QtWidgets.QMainWindow):
     def runProcessing(self, img):
         preprocessed = preprocess_image(img)
         edges = hybrid_edge_detection(preprocessed)
-        mask, metrics = self.analyzeImage(img)  # Use the original image for color segmentation
-        return mask, edges, metrics
+        highlighted_roads, road_mask, metrics = self.analyzeImage(preprocessed)
+        return highlighted_roads, edges, metrics
 
     def analyzeImage(self, img):
-        # Apply combined segmentation
-        mask = combined_segmentation(img)
-        self.displayImage(mask, self.label_processed)  # Display combined segmentation mask
+        # Apply dynamic color segmentation to get the initial mask
+        mask = dynamic_color_segmentation(img)
 
-        # Further clean the segmentation mask with less aggressive parameters
-        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        cleaned_mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
-        self.displayImage(cleaned_mask, self.label_processed)  # Display cleaned mask
+        # Apply morphological closing to fill small holes and connect nearby objects
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+        closed_mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel, iterations=2)
 
-        cleaned_mask = cv2.morphologyEx(cleaned_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
-        self.displayImage(cleaned_mask, self.label_processed)  # Display cleaned mask after closing
+        # Optionally, you could also apply opening to remove small noise
+        opened_mask = cv2.morphologyEx(closed_mask, cv2.MORPH_OPEN, kernel, iterations=1)
 
-        # Find contours and create the final mask
-        contours = find_contours(cleaned_mask)
+        # Find contours from the morphologically enhanced mask
+        contours = find_contours(opened_mask)
         road_mask = create_mask(contours, img.shape[:2])
-        self.displayImage(road_mask, self.label_processed)  # Display final road mask
 
-        # Calculate metrics
-        road_length, _ = calculate_road_length(contours, pixel_to_real=0.05)
+        # Calculate the road length and other metrics
+        road_length, road_contours = calculate_road_length(contours, pixel_to_real=0.05)
         iou_score = calculate_iou(road_mask, mask)
         precision, recall, f1 = calculate_metrics(road_mask, mask)
         accuracy = calculate_accuracy(road_mask, mask)
 
-        return road_mask, {"f1": f1, "accuracy": accuracy, "road_length": road_length}
+        # Draw detected roads on the original image
+        highlighted_roads = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+        cv2.drawContours(highlighted_roads, road_contours, -1, (0, 255, 0), 2)
 
-
+        return highlighted_roads, road_mask, {"f1": f1, "accuracy": accuracy, "road_length": road_length}
 
 if __name__ == "__main__":
     app = QtWidgets.QApplication(sys.argv)
